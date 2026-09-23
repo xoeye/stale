@@ -1,5 +1,4 @@
 import * as core from '@actions/core';
-import {context} from '@actions/github';
 import {IssuesProcessor} from './classes/issues-processor';
 import {isValidDate} from './functions/dates/is-valid-date';
 import {IIssuesProcessorOptions} from './interfaces/issues-processor-options';
@@ -58,14 +57,6 @@ async function _run(): Promise<void> {
 function _getAndValidateArgs(): IIssuesProcessorOptions {
   const args: IIssuesProcessorOptions = {
     repoToken: core.getInput('repo-token'),
-    repoOwner:
-      core.getInput('repo-owner') === ''
-        ? context.repo.owner
-        : core.getInput('repo-owner'),
-    repoName:
-      core.getInput('repo-name') === ''
-        ? context.repo.repo
-        : core.getInput('repo-name'),
     staleIssueMessage: core.getInput('stale-issue-message'),
     stalePrMessage: core.getInput('stale-pr-message'),
     closeIssueMessage: core.getInput('close-issue-message'),
@@ -106,6 +97,7 @@ function _getAndValidateArgs(): IIssuesProcessorOptions {
     ),
     debugOnly: core.getInput('debug-only') === 'true',
     ascending: core.getInput('ascending') === 'true',
+    sortBy: _processParamtoString(core.getInput('sort-by')),
     deleteBranch: core.getInput('delete-branch') === 'true',
     startDate:
       core.getInput('start-date') !== ''
@@ -132,7 +124,8 @@ function _getAndValidateArgs(): IIssuesProcessorOptions {
     ignorePrUpdates: _toOptionalBoolean('ignore-pr-updates'),
     exemptDraftPr: core.getInput('exempt-draft-pr') === 'true',
     closeIssueReason: core.getInput('close-issue-reason'),
-    includeOnlyAssigned: core.getInput('include-only-assigned') === 'true'
+    includeOnlyAssigned: core.getInput('include-only-assigned') === 'true',
+    onlyIssueTypes: core.getInput('only-issue-types')
   };
 
   for (const numberInput of ['days-before-stale']) {
@@ -205,6 +198,16 @@ function _toOptionalBoolean(
   }
 
   return undefined;
+}
+
+function _processParamtoString(
+  sortByValueInput: string
+): 'created' | 'updated' | 'comments' {
+  return sortByValueInput === 'updated'
+    ? 'updated'
+    : sortByValueInput === 'comments'
+    ? 'comments'
+    : 'created';
 }
 
 void _run();

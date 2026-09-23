@@ -2,8 +2,6 @@ import {IsoOrRfcDateString} from '../types/iso-or-rfc-date-string';
 
 export interface IIssuesProcessorOptions {
   repoToken: string;
-  repoOwner: string;
-  repoName: string;
   staleIssueMessage: string;
   stalePrMessage: string;
   closeIssueMessage: string;
@@ -32,6 +30,7 @@ export interface IIssuesProcessorOptions {
   removePrStaleWhenUpdated: boolean | undefined;
   debugOnly: boolean;
   ascending: boolean;
+  sortBy: 'created' | 'updated' | 'comments';
   deleteBranch: boolean;
   startDate: IsoOrRfcDateString | undefined; // Should be ISO 8601 or RFC 2822
   exemptMilestones: string;
@@ -56,4 +55,5 @@ export interface IIssuesProcessorOptions {
   exemptDraftPr: boolean;
   closeIssueReason: string;
   includeOnlyAssigned: boolean;
+  onlyIssueTypes?: string;
 }

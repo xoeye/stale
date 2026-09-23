@@ -13,6 +13,7 @@ describe('Issue', (): void => {
   beforeEach((): void => {
     optionsInterface = {
       ascending: false,
+      sortBy: 'created',
       closeIssueLabel: '',
       closeIssueMessage: '',
       closePrLabel: '',
@@ -38,8 +39,6 @@ describe('Issue', (): void => {
       removeIssueStaleWhenUpdated: undefined,
       removePrStaleWhenUpdated: undefined,
       repoToken: '',
-      repoOwner: '',
-      repoName: '',
       staleIssueMessage: '',
       stalePrMessage: '',
       startDate: undefined,
