@@ -1,5 +1,5 @@
 import * as core from '@actions/core';
-import {context, getOctokit} from '@actions/github';
+import {getOctokit} from '@actions/github';
 import {GitHub} from '@actions/github/lib/utils';
 import {Option} from '../enums/option';
 import {getHumanizedDate} from '../functions/dates/get-humanized-date';
@@ -567,8 +567,8 @@ export class IssuesProcessor {
       this._consumeIssueOperation(issue);
       this.statistics?.incrementFetchedItemsCommentsCount();
       const comments = await this.client.rest.issues.listComments({
-        owner: context.repo.owner,
-        repo: context.repo.repo,
+        owner: this.options.repoOwner,
+        repo: this.options.repoName,
         issue_number: issue.number,
         since: sinceDate
       });
@@ -581,11 +581,16 @@ export class IssuesProcessor {
 
   // grab issues from github in batches of 100
   async getIssues(page: number): Promise<Issue[]> {
+    this._logger.info(
+      LoggerService.green(
+        `Processing: ${this.options.repoOwner}/${this.options.repoName}`
+      )
+    );
     try {
       this.operations.consumeOperation();
       const issueResult = await this.client.rest.issues.listForRepo({
-        owner: context.repo.owner,
-        repo: context.repo.repo,
+        owner: this.options.repoOwner,
+        repo: this.options.repoName,
         state: 'open',
         per_page: 100,
         direction: this.options.ascending ? 'asc' : 'desc',
@@ -616,8 +621,8 @@ export class IssuesProcessor {
     this._consumeIssueOperation(issue);
     this.statistics?.incrementFetchedItemsEventsCount();
     const options = this.client.rest.issues.listEvents.endpoint.merge({
-      owner: context.repo.owner,
-      repo: context.repo.repo,
+      owner: this.options.repoOwner,
+      repo: this.options.repoName,
       per_page: 100,
       issue_number: issue.number
     });
@@ -689,8 +694,8 @@ export class IssuesProcessor {
       this.statistics?.incrementFetchedPullRequestsCount();
 
       const pullRequest = await this.client.rest.pulls.get({
-        owner: context.repo.owner,
-        repo: context.repo.repo,
+        owner: this.options.repoOwner,
+        repo: this.options.repoName,
         pull_number: issue.number
       });
 
@@ -944,8 +949,8 @@ export class IssuesProcessor {
 
         if (!this.options.debugOnly) {
           await this.client.rest.issues.createComment({
-            owner: context.repo.owner,
-            repo: context.repo.repo,
+            owner: this.options.repoOwner,
+            repo: this.options.repoName,
             issue_number: issue.number,
             body: staleMessage
           });
@@ -962,8 +967,8 @@ export class IssuesProcessor {
 
       if (!this.options.debugOnly) {
         await this.client.rest.issues.addLabels({
-          owner: context.repo.owner,
-          repo: context.repo.repo,
+          owner: this.options.repoOwner,
+          repo: this.options.repoName,
           issue_number: issue.number,
           labels: [staleLabel]
         });
@@ -992,8 +997,8 @@ export class IssuesProcessor {
 
         if (!this.options.debugOnly) {
           await this.client.rest.issues.createComment({
-            owner: context.repo.owner,
-            repo: context.repo.repo,
+            owner: this.options.repoOwner,
+            repo: this.options.repoName,
             issue_number: issue.number,
             body: closeMessage
           });
@@ -1010,8 +1015,8 @@ export class IssuesProcessor {
 
         if (!this.options.debugOnly) {
           await this.client.rest.issues.addLabels({
-            owner: context.repo.owner,
-            repo: context.repo.repo,
+            owner: this.options.repoOwner,
+            repo: this.options.repoName,
             issue_number: issue.number,
             labels: [closeLabel]
           });
@@ -1027,8 +1032,8 @@ export class IssuesProcessor {
 
       if (!this.options.debugOnly) {
         await this.client.rest.issues.update({
-          owner: context.repo.owner,
-          repo: context.repo.repo,
+          owner: this.options.repoOwner,
+          repo: this.options.repoName,
           issue_number: issue.number,
           state: 'closed',
           state_reason: (this.options.closeIssueReason || undefined) as
@@ -1069,7 +1074,7 @@ export class IssuesProcessor {
     if (
       pullRequest.head.repo === null ||
       pullRequest.head.repo.full_name ===
-        `${context.repo.owner}/${context.repo.repo}`
+        `${this.options.repoOwner}/${this.options.repoName}`
     ) {
       issueLogger.info(
         `Deleting the branch "${LoggerService.cyan(branch)}" from closed $$type`
@@ -1081,8 +1086,8 @@ export class IssuesProcessor {
 
         if (!this.options.debugOnly) {
           await this.client.rest.git.deleteRef({
-            owner: context.repo.owner,
-            repo: context.repo.repo,
+            owner: this.options.repoOwner,
+            repo: this.options.repoName,
             ref: `heads/${branch}`
           });
         }
@@ -1125,8 +1130,8 @@ export class IssuesProcessor {
 
       if (!this.options.debugOnly) {
         await this.client.rest.issues.removeLabel({
-          owner: context.repo.owner,
-          repo: context.repo.repo,
+          owner: this.options.repoOwner,
+          repo: this.options.repoName,
           issue_number: issue.number,
           name: label
         });
@@ -1263,8 +1268,8 @@ export class IssuesProcessor {
       this.statistics?.incrementAddedItemsLabel(issue);
       if (!this.options.debugOnly) {
         await this.client.rest.issues.addLabels({
-          owner: context.repo.owner,
-          repo: context.repo.repo,
+          owner: this.options.repoOwner,
+          repo: this.options.repoName,
           issue_number: issue.number,
           labels: labelsToAdd
         });
