@@ -28,6 +28,7 @@ export enum Option {
   RemovePrStaleWhenUpdated = 'remove-pr-stale-when-updated',
   DebugOnly = 'debug-only',
   Ascending = 'ascending',
+  SortBy = 'sort-by',
   DeleteBranch = 'delete-branch',
   StartDate = 'start-date',
   ExemptMilestones = 'exempt-milestones',
@@ -50,5 +51,6 @@ export enum Option {
   IgnoreIssueUpdates = 'ignore-issue-updates',
   IgnorePrUpdates = 'ignore-pr-updates',
   ExemptDraftPr = 'exempt-draft-pr',
-  CloseIssueReason = 'close-issue-reason'
+  CloseIssueReason = 'close-issue-reason',
+  OnlyIssueTypes = 'only-issue-types'
 }

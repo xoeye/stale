@@ -29,6 +29,7 @@ import {retry} from '@octokit/plugin-retry';
 import {IState} from '../interfaces/state/state';
 import {IRateLimit} from '../interfaces/rate-limit';
 import {RateLimit} from './rate-limit';
+import {getSortField} from '../functions/get-sort-field';
 
 /***
  * Handle processing of issues for staleness/closure.
@@ -249,6 +250,23 @@ export class IssuesProcessor {
       );
       IssuesProcessor._endIssueProcessing(issue);
       return; // If the issue has an 'include-only-assigned' option set, process only issues with nonempty assignees list
+    }
+
+    if (this.options.onlyIssueTypes && !issue.isPullRequest) {
+      const allowedTypes = this.options.onlyIssueTypes
+        .split(',')
+        .map(t => t.trim().toLowerCase())
+        .filter(Boolean);
+      const issueType = (issue.issue_type || '').toLowerCase();
+      if (!allowedTypes.includes(issueType)) {
+        issueLogger.info(
+          `Skipping this $$type because its type ('${
+            issue.issue_type
+          }') is not in onlyIssueTypes (${allowedTypes.join(', ')})`
+        );
+        IssuesProcessor._endIssueProcessing(issue);
+        return;
+      }
     }
 
     const onlyLabels: string[] = wordsToList(this._getOnlyLabels(issue));
@@ -576,6 +594,7 @@ export class IssuesProcessor {
         state: 'open',
         per_page: 100,
         direction: this.options.ascending ? 'asc' : 'desc',
+        sort: getSortField(this.options.sortBy),
         page
       });
       this.statistics?.incrementFetchedItemsCount(issueResult.data.length);
@@ -594,7 +613,7 @@ export class IssuesProcessor {
   async getLabelCreationDate(
     issue: Issue,
     label: string
-  ): Promise<string | undefined> {
+  ): Promise<{creationDate?: string; events: IIssueEvent[]}> {
     const issueLogger: IssueLogger = new IssueLogger(issue);
 
     issueLogger.info(`Checking for label on this $$type`);
@@ -609,6 +628,7 @@ export class IssuesProcessor {
     });
 
     const events: IIssueEvent[] = await this.client.paginate(options);
+
     const reversedEvents = events.reverse();
 
     const staleLabeledEvent = reversedEvents.find(
@@ -619,10 +639,51 @@ export class IssuesProcessor {
 
     if (!staleLabeledEvent) {
       // Must be old rather than labeled
-      return undefined;
+      return {creationDate: undefined, events};
     }
 
-    return staleLabeledEvent.created_at;
+    return {creationDate: staleLabeledEvent.created_at, events};
+  }
+
+  protected async hasOnlyStaleLabelingEventsSince(
+    issue: Issue,
+    sinceDate: string,
+    staleLabel: string,
+    events: IIssueEvent[]
+  ): Promise<boolean> {
+    const issueLogger: IssueLogger = new IssueLogger(issue);
+
+    issueLogger.info(
+      `Checking if only stale label added events on $$type since: ${LoggerService.cyan(
+        sinceDate
+      )}`
+    );
+
+    if (!sinceDate) {
+      return false;
+    }
+
+    const sinceTimestamp = new Date(sinceDate).getTime();
+    if (Number.isNaN(sinceTimestamp)) {
+      return false;
+    }
+
+    const relevantEvents = events.filter(event => {
+      const eventTimestamp = new Date(event.created_at).getTime();
+      return !Number.isNaN(eventTimestamp) && eventTimestamp >= sinceTimestamp;
+    });
+
+    if (relevantEvents.length === 0) {
+      return false;
+    }
+
+    return relevantEvents.every(event => {
+      if (event.event !== 'labeled') {
+        return false;
+      }
+
+      return cleanLabel(event.label.name) === cleanLabel(staleLabel);
+    });
   }
 
   async getPullRequest(issue: Issue): Promise<IPullRequest | undefined | void> {
@@ -646,11 +707,22 @@ export class IssuesProcessor {
 
   async getRateLimit(): Promise<IRateLimit | undefined> {
     const logger: Logger = new Logger();
+
     try {
       const rateLimitResult = await this.client.rest.rateLimit.get();
       return new RateLimit(rateLimitResult.data.rate);
-    } catch (error) {
-      logger.error(`Error when getting rateLimit: ${error.message}`);
+    } catch (error: unknown) {
+      const status = (error as {status?: number})?.status;
+      const message = (error as {message?: string})?.message ?? String(error);
+
+      if (status === 404 && message.includes('Rate limiting is not enabled')) {
+        logger.warning(
+          'Rate limiting is not enabled on this instance. Proceeding without rate limit checks.'
+        );
+        return undefined;
+      }
+
+      logger.error(`Error when getting rateLimit: ${message}`);
     }
   }
 
@@ -666,8 +738,11 @@ export class IssuesProcessor {
     closeLabel?: string
   ) {
     const issueLogger: IssueLogger = new IssueLogger(issue);
-    const markedStaleOn: string =
-      (await this.getLabelCreationDate(issue, staleLabel)) || issue.updated_at;
+    const {creationDate, events} = await this.getLabelCreationDate(
+      issue,
+      staleLabel
+    );
+    const markedStaleOn: string = creationDate || issue.updated_at;
     issueLogger.info(
       `$$type marked stale on: ${LoggerService.cyan(markedStaleOn)}`
     );
@@ -719,11 +794,32 @@ export class IssuesProcessor {
 
     // The issue.updated_at and markedStaleOn are not always exactly in sync (they can be off by a second or 2)
     // isDateMoreRecentThan makes sure they are not the same date within a certain tolerance (15 seconds in this case)
-    const issueHasUpdateSinceStale = isDateMoreRecentThan(
+    let issueHasUpdateSinceStale = isDateMoreRecentThan(
       new Date(issue.updated_at),
       new Date(markedStaleOn),
       15
     );
+
+    // Check if the only update was the stale label being added
+    if (
+      issueHasUpdateSinceStale &&
+      shouldRemoveStaleWhenUpdated &&
+      !issue.markedStaleThisRun
+    ) {
+      const onlyStaleLabelAdded = await this.hasOnlyStaleLabelingEventsSince(
+        issue,
+        markedStaleOn,
+        staleLabel,
+        events
+      );
+
+      if (onlyStaleLabelAdded) {
+        issueHasUpdateSinceStale = false;
+        issueLogger.info(
+          `Ignoring $$type update since only the stale label was added`
+        );
+      }
+    }
 
     issueLogger.info(
       `$$type has been updated since it was marked stale: ${LoggerService.cyan(
@@ -940,7 +1036,12 @@ export class IssuesProcessor {
           repo: this.options.repoName,
           issue_number: issue.number,
           state: 'closed',
-          state_reason: this.options.closeIssueReason || undefined
+          state_reason: (this.options.closeIssueReason || undefined) as
+            | 'completed'
+            | 'reopened'
+            | 'not_planned'
+            | null
+            | undefined
         });
       }
     } catch (error) {

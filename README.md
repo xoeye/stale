@@ -3,6 +3,13 @@
 [![Basic validation](https://github.com/actions/stale/actions/workflows/basic-validation.yml/badge.svg?branch=main)](https://github.com/actions/stale/actions/workflows/basic-validation.yml)
 [![e2e tests](https://github.com/actions/stale/actions/workflows/e2e-tests.yml/badge.svg?branch=main)](https://github.com/actions/stale/actions/workflows/e2e-tests.yml)
 
+## Breaking changes in V10
+
+- Upgraded action from node20 to node 24
+  > Make sure your runner is on version v2.327.1 or later to ensure compatibility with this release. [Release Notes](https://github.com/actions/runner/releases/tag/v2.327.1)
+
+For more details, see the full release notes on the [release page](https://github.com/actions/stale/releases/tag/v10.0.0)
+
 Warns and then closes issues and PRs that have had no activity for a specified amount of time.
 
 The configuration must be on the default branch and the default values will:
@@ -19,6 +26,7 @@ This can be achieved with the following [configuration in the action](https://do
 
 ```yaml
 permissions:
+  actions: write
   contents: write # only for delete-branch option
   issues: write
   pull-requests: write
@@ -99,6 +107,8 @@ Every argument is optional.
 | [ignore-issue-updates](#ignore-issue-updates)                       | Override [ignore-updates](#ignore-updates) for issues only                  |                       |
 | [ignore-pr-updates](#ignore-pr-updates)                             | Override [ignore-updates](#ignore-updates) for PRs only                     |                       |
 | [include-only-assigned](#include-only-assigned)                     | Process only assigned issues                                                | `false`               |
+| [sort-by](#sort-by)                                                 | What to sort issues and PRs by                                              | `created`             |
+| [only-issue-types](#only-issue-types)                               | Only issues with a matching type are processed as stale/closed.             |                       |
 
 ### List of output options
 
@@ -561,6 +571,22 @@ If set to `true`, only the issues or the pull requests with an assignee will be 
 
 Default value: `false`
 
+#### sort-by
+
+Useful to sort the issues and PRs by the specified field. It accepts `created`, `updated`, `comments`.
+
+Default value: `created`
+
+#### only-issue-types
+
+A comma separated list of allowed issue types. Only issues with a matching type will be processed (e.g.: `bug,question`).
+
+If unset (or an empty string), this option will not alter the stale workflow.
+
+This option does not affect PRs.
+
+Default value: unset
+
 ### Usage
 
 See also [action.yml](./action.yml) for a comprehensive list of all the options.
@@ -577,7 +603,7 @@ jobs:
   stale:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/stale@v9
+      - uses: actions/stale@v10
         with:
           stale-issue-message: 'Message to comment on stale issues. If none provided, will not mark issues stale'
           stale-pr-message: 'Message to comment on stale PRs. If none provided, will not mark PRs stale'
@@ -595,7 +621,7 @@ jobs:
   stale:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/stale@v9
+      - uses: actions/stale@v10
         with:
           stale-issue-message: 'This issue is stale because it has been open 30 days with no activity. Remove stale label or comment or this will be closed in 5 days.'
           days-before-stale: 30
@@ -614,7 +640,7 @@ jobs:
   stale:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/stale@v9
+      - uses: actions/stale@v10
         with:
           stale-issue-message: 'This issue is stale because it has been open 30 days with no activity. Remove stale label or comment or this will be closed in 5 days.'
           stale-pr-message: 'This PR is stale because it has been open 45 days with no activity. Remove stale label or comment or this will be closed in 10 days.'
@@ -636,7 +662,7 @@ jobs:
   stale:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/stale@v9
+      - uses: actions/stale@v10
         with:
           stale-issue-message: 'This issue is stale because it has been open 30 days with no activity. Remove stale label or comment or this will be closed in 5 days.'
           stale-pr-message: 'This PR is stale because it has been open 45 days with no activity. Remove stale label or comment or this will be closed in 10 days.'
@@ -660,7 +686,7 @@ jobs:
   stale:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/stale@v9
+      - uses: actions/stale@v10
         with:
           stale-issue-message: 'Stale issue message'
           stale-pr-message: 'Stale pull request message'
@@ -683,7 +709,7 @@ jobs:
   stale:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/stale@v9
+      - uses: actions/stale@v10
         with:
           start-date: '2020-04-18T00:00:00Z' # ISO 8601 or RFC 2822
 ```
@@ -700,7 +726,7 @@ jobs:
   stale:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/stale@v9
+      - uses: actions/stale@v10
         with:
           exempt-issue-milestones: 'future,alpha,beta'
           exempt-pr-milestones: 'bugfix,improvement'
@@ -718,7 +744,7 @@ jobs:
   stale:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/stale@v9
+      - uses: actions/stale@v10
         with:
           exempt-all-pr-milestones: true
 ```
@@ -735,7 +761,7 @@ jobs:
   stale:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/stale@v9
+      - uses: actions/stale@v10
         with:
           any-of-labels: 'needs-more-info,needs-demo'
           # You can opt for 'only-labels' instead if your use-case requires all labels
@@ -754,7 +780,7 @@ jobs:
   stale:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/stale@v9
+      - uses: actions/stale@v10
         with:
           exempt-issue-assignees: 'marco,polo'
           exempt-pr-assignees: 'marco'
@@ -772,7 +798,7 @@ jobs:
   stale:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/stale@v9
+      - uses: actions/stale@v10
         with:
           exempt-all-pr-assignees: true
 ```
