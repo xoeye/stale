@@ -409,6 +409,26 @@ class IssuesProcessor {
     static _getCloseLabelUsedOptionName(issue) {
         return issue.isPullRequest ? option_1.Option.ClosePrLabel : option_1.Option.CloseIssueLabel;
     }
+    // Bots act through Bot accounts, except commits authored as
+    // actions@github.com, which GitHub links to the `actions` Organization.
+    static _isAutomationAccount(user) {
+        return (user === null || user === void 0 ? void 0 : user.type) === 'Bot' || (user === null || user === void 0 ? void 0 : user.type) === 'Organization';
+    }
+    static _describeAccount(user) {
+        return user ? `${user.login} (${user.type})` : 'an unknown account';
+    }
+    static _isIgnorableEvent(event, staleLabel) {
+        if (event.event === 'labeled' &&
+            (0, clean_label_1.cleanLabel)(event.label.name) === (0, clean_label_1.cleanLabel)(staleLabel)) {
+            return true;
+        }
+        // These name the mentioned or subscribed user as the actor, not whoever
+        // caused the event, so they say nothing about who acted
+        if (['mentioned', 'subscribed', 'unsubscribed'].includes(event.event)) {
+            return true;
+        }
+        return IssuesProcessor._isAutomationAccount(event.actor);
+    }
     constructor(options, state) {
         this.staleIssues = [];
         this.closedIssues = [];
@@ -768,6 +788,52 @@ class IssuesProcessor {
             });
         });
     }
+    // Lists the commits of a pull request, or returns undefined when they could
+    // not be listed. Used by ignore-bot-updates: a push bumps `updated_at`
+    // without leaving an issue event.
+    listPullRequestCommits(issue) {
+        var _a;
+        return __awaiter(this, void 0, void 0, function* () {
+            const issueLogger = new issue_logger_1.IssueLogger(issue);
+            try {
+                this._consumeIssueOperation(issue);
+                (_a = this.statistics) === null || _a === void 0 ? void 0 : _a.incrementFetchedPullRequestsCount();
+                return yield this.client.paginate(this.client.rest.pulls.listCommits, {
+                    owner: this.options.repoOwner,
+                    repo: this.options.repoName,
+                    pull_number: issue.number,
+                    per_page: 100
+                });
+            }
+            catch (error) {
+                issueLogger.error(`Error when listing the commits of this $$type: ${error.message}`);
+                return undefined;
+            }
+        });
+    }
+    // Lists the reviews of a pull request, or returns undefined when they could
+    // not be listed. Used by ignore-bot-updates: a review bumps `updated_at`
+    // without leaving an issue event.
+    listPullRequestReviews(issue) {
+        var _a;
+        return __awaiter(this, void 0, void 0, function* () {
+            const issueLogger = new issue_logger_1.IssueLogger(issue);
+            try {
+                this._consumeIssueOperation(issue);
+                (_a = this.statistics) === null || _a === void 0 ? void 0 : _a.incrementFetchedPullRequestsCount();
+                return yield this.client.paginate(this.client.rest.pulls.listReviews, {
+                    owner: this.options.repoOwner,
+                    repo: this.options.repoName,
+                    pull_number: issue.number,
+                    per_page: 100
+                });
+            }
+            catch (error) {
+                issueLogger.error(`Error when listing the reviews of this $$type: ${error.message}`);
+                return undefined;
+            }
+        });
+    }
     getPullRequest(issue) {
         var _a;
         return __awaiter(this, void 0, void 0, function* () {
@@ -813,7 +879,7 @@ class IssuesProcessor {
             const { creationDate, events } = yield this.getLabelCreationDate(issue, staleLabel);
             const markedStaleOn = creationDate || issue.updated_at;
             issueLogger.info(`$$type marked stale on: ${logger_service_1.LoggerService.cyan(markedStaleOn)}`);
-            const issueHasCommentsSinceStale = yield this._hasCommentsSince(issue, markedStaleOn, staleMessage);
+            const { hasComments: issueHasCommentsSinceStale, comments: commentsSinceStale } = yield this._hasCommentsSince(issue, markedStaleOn, staleMessage);
             issueLogger.info(`$$type has been commented on: ${logger_service_1.LoggerService.cyan(issueHasCommentsSinceStale)}`);
             const daysBeforeClose = issue.isPullRequest
                 ? this._getDaysBeforePrClose()
@@ -834,10 +900,18 @@ class IssuesProcessor {
             // The issue.updated_at and markedStaleOn are not always exactly in sync (they can be off by a second or 2)
             // isDateMoreRecentThan makes sure they are not the same date within a certain tolerance (15 seconds in this case)
             let issueHasUpdateSinceStale = (0, is_date_more_recent_than_1.isDateMoreRecentThan)(new Date(issue.updated_at), new Date(markedStaleOn), 15);
-            // Check if the only update was the stale label being added
-            if (issueHasUpdateSinceStale &&
+            if (this.options.ignoreBotUpdates) {
+                // Human comments already count as activity, so only attribute the rest
+                if (issueHasUpdateSinceStale &&
+                    !issueHasCommentsSinceStale &&
+                    !issue.markedStaleThisRun) {
+                    issueHasUpdateSinceStale = yield this._hasHumanActivitySinceStale(issue, markedStaleOn, staleLabel, staleMessage, events, commentsSinceStale);
+                }
+            }
+            else if (issueHasUpdateSinceStale &&
                 shouldRemoveStaleWhenUpdated &&
                 !issue.markedStaleThisRun) {
+                // Check if the only update was the stale label being added
                 const onlyStaleLabelAdded = yield this.hasOnlyStaleLabelingEventsSince(issue, markedStaleOn, staleLabel, events);
                 if (onlyStaleLabelAdded) {
                     issueHasUpdateSinceStale = false;
@@ -861,10 +935,22 @@ class IssuesProcessor {
             if (daysBeforeClose < 0) {
                 return; // Nothing to do because we aren't closing stale issues
             }
-            const issueHasUpdateInCloseWindow = IssuesProcessor._updatedSince(issue.updated_at, daysBeforeClose);
+            // With ignore-bot-updates, bots can keep `updated_at` fresh, so the close
+            // window starts at the stale label unless a human updated the item since.
+            // On the marking run, `markedStaleOn` can still be an older stale cycle,
+            // so keep `updated_at`, which marking set to now.
+            const closeWindowFromStaleLabel = this.options.ignoreBotUpdates &&
+                !issue.markedStaleThisRun &&
+                !issueHasUpdateSinceStale;
+            if (closeWindowFromStaleLabel) {
+                issueLogger.info(`The close window starts when the stale label was added since the option ${issueLogger.createOptionLink(option_1.Option.IgnoreBotUpdates)} is enabled`);
+            }
+            const issueHasUpdateInCloseWindow = IssuesProcessor._updatedSince(closeWindowFromStaleLabel ? markedStaleOn : issue.updated_at, daysBeforeClose);
             issueLogger.info(`$$type has been updated in the last ${daysBeforeClose} days: ${logger_service_1.LoggerService.cyan(issueHasUpdateInCloseWindow)}`);
             if (!issueHasCommentsSinceStale && !issueHasUpdateInCloseWindow) {
-                issueLogger.info(`Closing $$type because it was last updated on: ${logger_service_1.LoggerService.cyan(issue.updated_at)}`);
+                issueLogger.info(closeWindowFromStaleLabel
+                    ? `Closing $$type because it was marked stale on: ${logger_service_1.LoggerService.cyan(markedStaleOn)} with no human activity since`
+                    : `Closing $$type because it was last updated on: ${logger_service_1.LoggerService.cyan(issue.updated_at)}`);
                 yield this._closeIssue(issue, closeMessage, closeLabel);
                 if (this.options.deleteBranch && issue.pull_request) {
                     issueLogger.info(`Deleting the branch since the option ${issueLogger.createOptionLink(option_1.Option.DeleteBranch)} is enabled`);
@@ -878,12 +964,13 @@ class IssuesProcessor {
         });
     }
     // checks to see if a given issue is still stale (has had activity on it)
+    // and returns the comments it fetched so they can be reused
     _hasCommentsSince(issue, sinceDate, staleMessage) {
         return __awaiter(this, void 0, void 0, function* () {
             const issueLogger = new issue_logger_1.IssueLogger(issue);
             issueLogger.info(`Checking for comments on $$type since: ${logger_service_1.LoggerService.cyan(sinceDate)}`);
             if (!sinceDate) {
-                return true;
+                return { hasComments: true, comments: [] };
             }
             // find any comments since the date
             const comments = yield this.listIssueComments(issue, sinceDate);
@@ -894,7 +981,95 @@ class IssuesProcessor {
             });
             issueLogger.info(`Comments that are not the stale comment or another bot: ${logger_service_1.LoggerService.cyan(filteredComments.length)}`);
             // if there are any user comments returned
-            return filteredComments.length > 0;
+            return { hasComments: filteredComments.length > 0, comments };
+        });
+    }
+    // With ignore-bot-updates, decides whether the update since the stale label
+    // came from a human. Ignorable: the stale label and message, bot activity,
+    // and mentioned/subscribed/unsubscribed events. Human events, commits, and
+    // reviews count, and so does an `updated_at` that no ignorable activity
+    // explains, such as a body edit, which leaves no trace. Doubt keeps the
+    // item open. The caller already counts human comments.
+    _hasHumanActivitySinceStale(issue, markedStaleOn, staleLabel, staleMessage, events, commentsSinceStale) {
+        return __awaiter(this, void 0, void 0, function* () {
+            const issueLogger = new issue_logger_1.IssueLogger(issue);
+            const markedStaleAt = new Date(markedStaleOn).getTime();
+            const activities = [
+                ...events.map((event) => ({
+                    date: event.created_at,
+                    isHuman: !IssuesProcessor._isIgnorableEvent(event, staleLabel),
+                    description: `"${event.event}" event by ${IssuesProcessor._describeAccount(event.actor)}`
+                })),
+                // The caller handled human comments. A comment by any other account
+                // that is not the stale message explains nothing.
+                ...commentsSinceStale
+                    .filter(comment => {
+                    var _a;
+                    return IssuesProcessor._isAutomationAccount(comment.user) ||
+                        ((_a = comment.body) === null || _a === void 0 ? void 0 : _a.toLowerCase()) === staleMessage.toLowerCase();
+                })
+                    .map((comment) => {
+                    var _a;
+                    return ({
+                        date: (_a = comment.updated_at) !== null && _a !== void 0 ? _a : '',
+                        isHuman: false,
+                        description: `comment by ${IssuesProcessor._describeAccount(comment.user)}`
+                    });
+                })
+            ].filter(activity => new Date(activity.date).getTime() >= markedStaleAt);
+            if (issue.isPullRequest && !activities.some(activity => activity.isHuman)) {
+                const pullRequestActivities = yield this._listPullRequestActivities(issue);
+                if (!pullRequestActivities) {
+                    issueLogger.info(`Counting the $$type update as human activity since its commits or reviews could not be listed`);
+                    return true;
+                }
+                activities.push(...pullRequestActivities.filter(activity => new Date(activity.date).getTime() >= markedStaleAt));
+            }
+            const humanActivity = activities.find(activity => activity.isHuman);
+            if (humanActivity) {
+                issueLogger.info(`Counting the $$type update as human activity: ${humanActivity.description} on ${logger_service_1.LoggerService.cyan(humanActivity.date)}`);
+                return true;
+            }
+            const lastIgnorableAt = Math.max(markedStaleAt, ...activities.map(activity => new Date(activity.date).getTime()));
+            if ((0, is_date_more_recent_than_1.isDateMoreRecentThan)(new Date(issue.updated_at), new Date(lastIgnorableAt), 15)) {
+                issueLogger.info(`Counting the $$type update as human activity since no bot or stale-label activity explains its last update on: ${logger_service_1.LoggerService.cyan(issue.updated_at)}`);
+                return true;
+            }
+            issueLogger.info(`Ignoring $$type update: only bot or stale-label activity since it was marked stale`);
+            return false;
+        });
+    }
+    // Pushes and reviews bump `updated_at` without leaving an issue event.
+    // Returns undefined when the commits or the reviews could not be listed.
+    _listPullRequestActivities(issue) {
+        return __awaiter(this, void 0, void 0, function* () {
+            const commits = yield this.listPullRequestCommits(issue);
+            if (!commits) {
+                return undefined;
+            }
+            const reviews = yield this.listPullRequestReviews(issue);
+            if (!reviews) {
+                return undefined;
+            }
+            return [
+                ...commits.map((commit) => {
+                    var _a, _b;
+                    return ({
+                        date: (_b = (_a = commit.commit.committer) === null || _a === void 0 ? void 0 : _a.date) !== null && _b !== void 0 ? _b : '',
+                        // An author that GitHub cannot link to an account may be a human
+                        isHuman: !IssuesProcessor._isAutomationAccount(commit.author),
+                        description: `commit by ${IssuesProcessor._describeAccount(commit.author)}`
+                    });
+                }),
+                ...reviews.map((review) => {
+                    var _a;
+                    return ({
+                        date: (_a = review.submitted_at) !== null && _a !== void 0 ? _a : '',
+                        isHuman: !IssuesProcessor._isAutomationAccount(review.user),
+                        description: `review by ${IssuesProcessor._describeAccount(review.user)}`
+                    });
+                })
+            ];
         });
     }
     // Mark an issue as stale with a comment and a label
@@ -2296,6 +2471,7 @@ var Option;
     Option["IgnoreUpdates"] = "ignore-updates";
     Option["IgnoreIssueUpdates"] = "ignore-issue-updates";
     Option["IgnorePrUpdates"] = "ignore-pr-updates";
+    Option["IgnoreBotUpdates"] = "ignore-bot-updates";
     Option["ExemptDraftPr"] = "exempt-draft-pr";
     Option["CloseIssueReason"] = "close-issue-reason";
     Option["OnlyIssueTypes"] = "only-issue-types";
@@ -2669,6 +2845,7 @@ function _getAndValidateArgs() {
         ignoreUpdates: core.getInput('ignore-updates') === 'true',
         ignoreIssueUpdates: _toOptionalBoolean('ignore-issue-updates'),
         ignorePrUpdates: _toOptionalBoolean('ignore-pr-updates'),
+        ignoreBotUpdates: core.getInput('ignore-bot-updates') === 'true',
         exemptDraftPr: core.getInput('exempt-draft-pr') === 'true',
         closeIssueReason: core.getInput('close-issue-reason'),
         includeOnlyAssigned: core.getInput('include-only-assigned') === 'true',

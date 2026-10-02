@@ -106,6 +106,7 @@ Every argument is optional.
 | [ignore-updates](#ignore-updates)                                   | Any update (update/comment) can reset the stale idle time on the issues/PRs | `false`               |
 | [ignore-issue-updates](#ignore-issue-updates)                       | Override [ignore-updates](#ignore-updates) for issues only                  |                       |
 | [ignore-pr-updates](#ignore-pr-updates)                             | Override [ignore-updates](#ignore-updates) for PRs only                     |                       |
+| [ignore-bot-updates](#ignore-bot-updates)                           | Bot activity does not remove the stale label or delay closing               | `false`               |
 | [include-only-assigned](#include-only-assigned)                     | Process only assigned issues                                                | `false`               |
 | [sort-by](#sort-by)                                                 | What to sort issues and PRs by                                              | `created`             |
 | [only-issue-types](#only-issue-types)                               | Only issues with a matching type are processed as stale/closed.             |                       |
@@ -564,6 +565,26 @@ Default value: unset
 Useful to override [ignore-updates](#ignore-updates) but only to ignore the updates for the pull requests.
 
 Default value: unset
+
+#### ignore-bot-updates
+
+If set to `true`, activity by bot accounts after the stale label was added does not remove the stale label and does not delay closing.
+
+The action sorts the activity since the stale label as follows:
+
+- Ignored: the stale label and the stale message themselves; events, comments, and comment edits by bot accounts; `mentioned`, `subscribed`, and `unsubscribed` events, whose actor is the mentioned or subscribed user rather than whoever caused them; and, for pull requests, commits and reviews by bot accounts.
+- Human activity: comments, events, and, for pull requests, commits and reviews by any other account. This includes commits whose author GitHub cannot link to an account.
+- Unexplained update: an `updated_at` change that the ignored activity does not explain, such as a body edit, which leaves no event, counts as human activity. When in doubt, the item stays open.
+
+A bot account is a user of type `Bot`. Commits authored as `actions@github.com` count as bot commits too, because GitHub links them to the `actions` organization.
+
+If only ignored activity happened, the [days-before-close](#days-before-close) countdown runs from the date the stale label was added instead of from the last update.
+
+For pull requests, the action can make two more API calls (commits and reviews), which count against [operations-per-run](#operations-per-run). It makes them only if the pull request was updated after the stale label and no human comment or event explains it.
+
+Useful for repositories where automation (labelers, coverage reports, automated reviewers) reacts to the stale label and would otherwise remove it, which restarts the stale cycle.
+
+Default value: `false`
 
 #### include-only-assigned
 
