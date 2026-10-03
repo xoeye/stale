@@ -3,6 +3,8 @@ import {IssuesProcessor} from '../../src/classes/issues-processor';
 import {IComment} from '../../src/interfaces/comment';
 import {IIssuesProcessorOptions} from '../../src/interfaces/issues-processor-options';
 import {IPullRequest} from '../../src/interfaces/pull-request';
+import {IPullRequestCommit} from '../../src/interfaces/pull-request-commit';
+import {IPullRequestReview} from '../../src/interfaces/pull-request-review';
 import {IState} from '../../src/interfaces/state/state';
 import {IIssueEvent} from '../../src/interfaces/issue-event';
 
@@ -27,7 +29,13 @@ export class IssuesProcessorMock extends IssuesProcessor {
       staleLabel: string,
       events: IIssueEvent[]
     ) => Promise<boolean>,
-    getPullRequest?: (issue: Issue) => Promise<IPullRequest | undefined | void>
+    getPullRequest?: (issue: Issue) => Promise<IPullRequest | undefined | void>,
+    listPullRequestCommits?: (
+      issue: Issue
+    ) => Promise<IPullRequestCommit[] | undefined>,
+    listPullRequestReviews?: (
+      issue: Issue
+    ) => Promise<IPullRequestReview[] | undefined>
   ) {
     super(options, state);
 
@@ -59,6 +67,14 @@ export class IssuesProcessorMock extends IssuesProcessor {
 
     if (getPullRequest) {
       this.getPullRequest = getPullRequest;
+    }
+
+    if (listPullRequestCommits) {
+      this.listPullRequestCommits = listPullRequestCommits;
+    }
+
+    if (listPullRequestReviews) {
+      this.listPullRequestReviews = listPullRequestReviews;
     }
   }
 }
