@@ -81,7 +81,10 @@ export class IssuesProcessor {
   private static _isAutomationAccount(
     user: Readonly<IUser> | null | undefined
   ): boolean {
-    return user?.type === 'Bot' || user?.type === 'Organization';
+    return (
+      user?.type === 'Bot' ||
+      (user?.type === 'Organization' && user.login === 'actions')
+    );
   }
 
   private static _describeAccount(
@@ -896,12 +899,13 @@ export class IssuesProcessor {
     );
 
     if (this.options.ignoreBotUpdates) {
-      // Human comments already count as activity, so only attribute the rest
-      if (
-        issueHasUpdateSinceStale &&
-        !issueHasCommentsSinceStale &&
-        !issue.markedStaleThisRun
-      ) {
+      // Inspect recorded activity even when the updated_at difference is
+      // within the tolerance: a human event/comment/commit still counts.
+      const hasActivityAfterStale =
+        issueHasUpdateSinceStale ||
+        commentsSinceStale.length > 0 ||
+        events.some(event => event.created_at > markedStaleOn);
+      if (hasActivityAfterStale && !issue.markedStaleThisRun) {
         issueHasUpdateSinceStale = await this._hasHumanActivitySinceStale(
           issue,
           markedStaleOn,

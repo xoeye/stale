@@ -224,6 +224,32 @@ describe('ignore-bot-updates', (): void => {
       expect(processor.removedLabelIssues).toHaveLength(1);
     });
 
+    test('removes the stale label when a non-actions organization acted', async (): Promise<void> => {
+      expect.assertions(1);
+
+      const organization: IUser = {login: 'xoeye', type: 'Organization'};
+      const processor = await processStaleItem({
+        markedStaleOn,
+        updatedAt: markedStaleOn + HOUR,
+        isPullRequest: true,
+        commits: [commit(organization, markedStaleOn + HOUR)]
+      });
+
+      expect(processor.removedLabelIssues).toHaveLength(1);
+    });
+
+    test('removes the stale label for human activity within the tolerance', async (): Promise<void> => {
+      expect.assertions(1);
+
+      const processor = await processStaleItem({
+        markedStaleOn,
+        updatedAt: markedStaleOn + 10 * SECOND,
+        events: [labeled('priority', markedStaleOn + 10 * SECOND, human)]
+      });
+
+      expect(processor.removedLabelIssues).toHaveLength(1);
+    });
+
     test('removes the stale label when a human pushed before a bot reacted', async (): Promise<void> => {
       expect.assertions(1);
 

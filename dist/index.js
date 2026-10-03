@@ -412,7 +412,8 @@ class IssuesProcessor {
     // Bots act through Bot accounts, except commits authored as
     // actions@github.com, which GitHub links to the `actions` Organization.
     static _isAutomationAccount(user) {
-        return (user === null || user === void 0 ? void 0 : user.type) === 'Bot' || (user === null || user === void 0 ? void 0 : user.type) === 'Organization';
+        return ((user === null || user === void 0 ? void 0 : user.type) === 'Bot' ||
+            ((user === null || user === void 0 ? void 0 : user.type) === 'Organization' && user.login === 'actions'));
     }
     static _describeAccount(user) {
         return user ? `${user.login} (${user.type})` : 'an unknown account';
@@ -901,10 +902,12 @@ class IssuesProcessor {
             // isDateMoreRecentThan makes sure they are not the same date within a certain tolerance (15 seconds in this case)
             let issueHasUpdateSinceStale = (0, is_date_more_recent_than_1.isDateMoreRecentThan)(new Date(issue.updated_at), new Date(markedStaleOn), 15);
             if (this.options.ignoreBotUpdates) {
-                // Human comments already count as activity, so only attribute the rest
-                if (issueHasUpdateSinceStale &&
-                    !issueHasCommentsSinceStale &&
-                    !issue.markedStaleThisRun) {
+                // Inspect recorded activity even when the updated_at difference is
+                // within the tolerance: a human event/comment/commit still counts.
+                const hasActivityAfterStale = issueHasUpdateSinceStale ||
+                    commentsSinceStale.length > 0 ||
+                    events.some(event => event.created_at > markedStaleOn);
+                if (hasActivityAfterStale && !issue.markedStaleThisRun) {
                     issueHasUpdateSinceStale = yield this._hasHumanActivitySinceStale(issue, markedStaleOn, staleLabel, staleMessage, events, commentsSinceStale);
                 }
             }
