@@ -250,6 +250,22 @@ describe('ignore-bot-updates', (): void => {
       expect(processor.removedLabelIssues).toHaveLength(1);
     });
 
+    test('does not list pull request activity when only the stale label and message were recorded', async (): Promise<void> => {
+      expect.assertions(1);
+
+      // Listing commits would fail and count as human activity, so the label
+      // stays only if the commits are not listed
+      const processor = await processStaleItem({
+        markedStaleOn,
+        updatedAt: markedStaleOn + 2 * SECOND,
+        isPullRequest: true,
+        comments: [comment(tokenUser, markedStaleOn, 'This PR is stale')],
+        commitsRequestFails: true
+      });
+
+      expect(processor.removedLabelIssues).toHaveLength(0);
+    });
+
     test('removes the stale label when a human pushed before a bot reacted', async (): Promise<void> => {
       expect.assertions(1);
 

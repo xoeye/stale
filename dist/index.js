@@ -902,12 +902,18 @@ class IssuesProcessor {
             // isDateMoreRecentThan makes sure they are not the same date within a certain tolerance (15 seconds in this case)
             let issueHasUpdateSinceStale = (0, is_date_more_recent_than_1.isDateMoreRecentThan)(new Date(issue.updated_at), new Date(markedStaleOn), 15);
             if (this.options.ignoreBotUpdates) {
-                // Inspect recorded activity even when the updated_at difference is
-                // within the tolerance: a human event/comment/commit still counts.
-                const hasActivityAfterStale = issueHasUpdateSinceStale ||
-                    commentsSinceStale.length > 0 ||
-                    events.some(event => event.created_at > markedStaleOn);
-                if (hasActivityAfterStale && !issue.markedStaleThisRun) {
+                // Activity recorded within the tolerance counts too, so a human event
+                // right after the stale label is not lost. These events and comments
+                // were already fetched, so checking them costs no API call.
+                const markedStaleAt = new Date(markedStaleOn).getTime();
+                const hasRecordedActivitySinceStale = events.some(event => new Date(event.created_at).getTime() >= markedStaleAt &&
+                    !(event.event === 'labeled' &&
+                        (0, clean_label_1.cleanLabel)(event.label.name) === (0, clean_label_1.cleanLabel)(staleLabel))) ||
+                    commentsSinceStale.some(comment => { var _a; return ((_a = comment.body) === null || _a === void 0 ? void 0 : _a.toLowerCase()) !== staleMessage.toLowerCase(); });
+                // Human comments already count as activity, so only attribute the rest
+                if (!issueHasCommentsSinceStale &&
+                    !issue.markedStaleThisRun &&
+                    (issueHasUpdateSinceStale || hasRecordedActivitySinceStale)) {
                     issueHasUpdateSinceStale = yield this._hasHumanActivitySinceStale(issue, markedStaleOn, staleLabel, staleMessage, events, commentsSinceStale);
                 }
             }

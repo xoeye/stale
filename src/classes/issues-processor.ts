@@ -899,13 +899,29 @@ export class IssuesProcessor {
     );
 
     if (this.options.ignoreBotUpdates) {
-      // Inspect recorded activity even when the updated_at difference is
-      // within the tolerance: a human event/comment/commit still counts.
-      const hasActivityAfterStale =
-        issueHasUpdateSinceStale ||
-        commentsSinceStale.length > 0 ||
-        events.some(event => event.created_at > markedStaleOn);
-      if (hasActivityAfterStale && !issue.markedStaleThisRun) {
+      // Activity recorded within the tolerance counts too, so a human event
+      // right after the stale label is not lost. These events and comments
+      // were already fetched, so checking them costs no API call.
+      const markedStaleAt: number = new Date(markedStaleOn).getTime();
+      const hasRecordedActivitySinceStale: boolean =
+        events.some(
+          event =>
+            new Date(event.created_at).getTime() >= markedStaleAt &&
+            !(
+              event.event === 'labeled' &&
+              cleanLabel(event.label.name) === cleanLabel(staleLabel)
+            )
+        ) ||
+        commentsSinceStale.some(
+          comment => comment.body?.toLowerCase() !== staleMessage.toLowerCase()
+        );
+
+      // Human comments already count as activity, so only attribute the rest
+      if (
+        !issueHasCommentsSinceStale &&
+        !issue.markedStaleThisRun &&
+        (issueHasUpdateSinceStale || hasRecordedActivitySinceStale)
+      ) {
         issueHasUpdateSinceStale = await this._hasHumanActivitySinceStale(
           issue,
           markedStaleOn,
